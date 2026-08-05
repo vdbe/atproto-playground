@@ -111,7 +111,7 @@ func (b *Bot) Run(ctx context.Context, interval time.Duration) error {
 			return nil
 		case <-ticker.C:
 			// Continue posting even if a previous post failed, but log the error.
-			// Context cancellation means the bot is shutting down, so don't log that as an error.
+			// Context cancellation means the bot is shutting down, so don't log this as an error.
 			if err := b.post(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				b.logger().ErrorContext(ctx, "scheduled post failed", "operation", "create_post", "outcome", "error", "err", err)
 			}

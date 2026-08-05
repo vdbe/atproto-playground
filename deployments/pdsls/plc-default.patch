@@ -1,0 +1,41 @@
+diff --git a/src/views/settings.tsx b/src/views/settings.tsx
+--- a/src/views/settings.tsx
++++ b/src/views/settings.tsx
+@@ -3,9 +3,11 @@ import { createSignal } from "solid-js";
+ import { TextInput } from "../components/text-input.jsx";
+ import { ThemeSelection } from "../components/theme.jsx";
+
++const defaultPlcDirectory = import.meta.env.VITE_DEFAULT_PLC_DIRECTORY || "https://plc.directory";
++
+ export const [hideMedia, setHideMedia] = createSignal(localStorage.hideMedia === "true");
+ export const [plcDirectory, setPlcDirectory] = createSignal(
+-  localStorage.plcDirectory || "https://plc.directory",
++  localStorage.plcDirectory || defaultPlcDirectory,
+ );
+
+ const Settings = () => {
+@@ -18,13 +20,13 @@ const Settings = () => {
+           <label for="plcDirectory" class="font-medium select-none">
+             PLC Directory
+           </label>
+-          {plcDirectory() !== "https://plc.directory" && (
++          {plcDirectory() !== defaultPlcDirectory && (
+             <button
+               type="button"
+               class="rounded px-2 py-1 text-xs text-neutral-500 hover:bg-neutral-200 hover:text-neutral-700 active:bg-neutral-300 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200 dark:active:bg-neutral-600"
+               onClick={() => {
+                 localStorage.removeItem("plcDirectory");
+-                setPlcDirectory("https://plc.directory");
++                setPlcDirectory(defaultPlcDirectory);
+               }}
+             >
+               Reset
+@@ -41,7 +43,7 @@ const Settings = () => {
+               setPlcDirectory(value);
+             } else {
+               localStorage.removeItem("plcDirectory");
+-              setPlcDirectory("https://plc.directory");
++              setPlcDirectory(defaultPlcDirectory);
+             }
+           }}
+         />

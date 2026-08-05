@@ -1,0 +1,9 @@
+apiVersion: 1
+
+providers:
+  - name: ATProto Development
+    type: file
+    updateIntervalSeconds: 10
+    options:
+      path: /otel-lgtm/grafana-dashboards
+      foldersFromFilesStructure: false

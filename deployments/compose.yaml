@@ -1,0 +1,143 @@
+name: atproto-dev
+
+services:
+  plc-db:
+    image: docker.io/postgres:14-alpine@sha256:f1341c01408dc7278e9d365ed4f860cd3f87dd16b4464ac326fc0f422083a579
+    environment:
+      POSTGRES_DB: plc
+      POSTGRES_PASSWORD: ${PLC_DB_PASSWORD:-test-only-plc-password}
+      POSTGRES_USER: plc
+    volumes:
+      - plc_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [
+        "CMD-SHELL",
+        "pg_isready -U plc -d plc && psql -U plc -d plc -tAc 'SELECT 1' | grep -q '^1$'"
+        ]
+      start_interval: 1s
+      start_period: 30s
+      interval: 5s
+      timeout: 5s
+      retries: 3
+
+  plc:
+    image: atproto-dev-plc:local
+    build:
+      context: ./plc
+    environment:
+      DATABASE_URL: postgres://plc:${PLC_DB_PASSWORD:-test-only-plc-password}@plc-db:5432/plc
+      LOG_ENABLED: "true"
+      LOG_LEVEL: info
+      PORT: "2582"
+    ports:
+      - 127.0.0.1:2582:2582
+    depends_on:
+      plc-db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:2582/_health]
+      start_interval: 2s
+      start_period: 30s
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  pdsls:
+    image: atproto-dev-pdsls:local
+    build:
+      context: ./pdsls
+    ports:
+      - 127.0.0.1:2584:80
+    depends_on:
+      plc:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/healthz]
+      start_interval: 2s
+      start_period: 30s
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  pgadmin:
+    image: docker.io/dpage/pgadmin4:9@sha256:2f4ce946ddf8360680d7eff4eaba1d91859eb6b4003e6623bad5c63a322c2f4d
+    environment:
+      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
+      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-test-only-pgadmin-password}
+      PGADMIN_DISABLE_POSTFIX: "1"
+      PGADMIN_CONFIG_ENABLE_SERVER_PASS_EXEC_CMD: "True"
+      PGADMIN_REPLACE_SERVERS_ON_STARTUP: "True"
+      PLC_DB_PASSWORD: ${PLC_DB_PASSWORD:-test-only-plc-password}
+    ports:
+      - 127.0.0.1:5050:80
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+      - ./pgadmin/servers.json:/pgadmin4/servers.json:ro
+      - ./pgadmin/plc-password.sh:/pgadmin4/plc-password.sh:ro
+    depends_on:
+      plc-db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1/misc/ping]
+      start_interval: 2s
+      start_period: 30s
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+  lgtm:
+    image: ghcr.io/grafana/docker-otel-lgtm:v0.30.0@sha256:1ade20219fb8a6ea6a78c9140e7155c040b323ceeaac0217a0840e28129d7028
+    environment:
+      PLC_DB_PASSWORD: ${PLC_DB_PASSWORD:-test-only-plc-password}
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana-dashboards/atproto-dev-services.json
+    ports:
+      - 127.0.0.1:3000:3000
+      - 127.0.0.1:4317:4317
+      - 127.0.0.1:4318:4318
+    expose:
+      - "8126"
+    volumes:
+      - lgtm_data:/data
+      - pds_logs:/var/log/pds:ro
+      - ./lgtm/dashboard-provider.yaml:/otel-lgtm/grafana/conf/provisioning/dashboards/atproto-dev.yaml:ro
+      - ./lgtm/dashboards:/otel-lgtm/grafana-dashboards:ro
+      - ./lgtm/otelcol-config.yaml:/otel-lgtm/otelcol-config.yaml:ro
+    depends_on:
+      plc-db:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, /otel-lgtm/docker/healthcheck.sh]
+      start_period: 20s
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  pds:
+    # Develop against atproto head
+    # Tag format: ghcr.io/bluesky-social/atproto:pds-<commit-sha>@<digest>
+    image: ghcr.io/bluesky-social/atproto:pds-5043c7a1c922a79baba972f27d1abb75675e9705@sha256:f2c7e2ef3448e9f6b1334815630373b0db6a47093c5777722787f6a8cf4bc3d1
+    # image: ghcr.io/bluesky-social/pds:0.4@sha256:1fa8bbceabb65d8e1710749b1ea92c1c20a7489ca38da4a0a5f64c0c10a70c29
+    env_file:
+      - ../.env
+    ports:
+      - 127.0.0.1:2583:2583
+    volumes:
+      - pds_data:/app/data
+      - pds_logs:/var/log/pds
+    depends_on:
+      plc:
+        condition: service_healthy
+    healthcheck:
+      test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:2583/xrpc/_health]
+      start_interval: 2s
+      start_period: 60s
+      interval: 30s
+      timeout: 3s
+      retries: 3
+
+volumes:
+  lgtm_data:
+  pds_data:
+  pds_logs:
+  pgadmin_data:
+  plc_data:

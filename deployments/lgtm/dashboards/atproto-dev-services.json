@@ -1,0 +1,44 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "gridPos": {
+        "h": 10,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "content": "# Local services\n\n- [PDSls repository listing](http://localhost:2584/localhost:2583)\n- [Local PLC](http://localhost:2582/)\n- [Local PDS](http://localhost:2583/)\n- [pgAdmin](http://localhost:5050/)\n- [Grafana](http://localhost:3000/)",
+        "mode": "markdown"
+      },
+      "title": "Service links",
+      "type": "text"
+    }
+  ],
+  "refresh": "",
+  "schemaVersion": 39,
+  "tags": [
+    "atproto-dev"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "ATProto Development Services",
+  "uid": "atproto-dev-services",
+  "version": 1
+}

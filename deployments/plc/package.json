@@ -1,0 +1,8 @@
+{
+  "name": "atproto-dev-plc",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": {
+    "@did-plc/server": "0.0.1"
+  }
+}

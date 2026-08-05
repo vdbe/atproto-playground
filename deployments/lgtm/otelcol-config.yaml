@@ -1,0 +1,134 @@
+# Based on ghcr.io/grafana/docker-otel-lgtm v0.30.0's otelcol-config.yaml.
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        cors:
+          allowed_origins:
+            - http://*
+  datadog/pds:
+    endpoint: 0.0.0.0:8126
+    read_timeout: 60s
+  filelog/pds:
+    include:
+      - /var/log/pds/pds.log
+    start_at: beginning
+    storage: file_storage
+    resource:
+      service.name: atproto-pds
+      deployment.environment.name: test
+    operators:
+      - type: json_parser
+  postgresql/plc:
+    endpoint: plc-db:5432
+    transport: tcp
+    username: plc
+    password: ${env:PLC_DB_PASSWORD}
+    databases:
+      - plc
+    collection_interval: 10s
+    tls:
+      insecure: true
+  prometheus/collector:
+    config:
+      scrape_configs:
+        - job_name: "opentelemetry-collector"
+          scrape_interval: 1s
+          static_configs:
+            - targets: ["127.0.0.1:8888"]
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+    path: "/ready"
+  file_storage:
+    directory: /data/otelcol
+    create_directory: true
+
+processors:
+  batch:
+  transform/otlp_logs_json:
+    log_statements:
+      - context: log
+        statements:
+          - set(cache["msg"], body)
+          - set(body, attributes)
+          - set(body["msg"], cache["msg"])
+  resource/plc:
+    attributes:
+      - key: service.name
+        value: plc-db
+        action: upsert
+      - key: deployment.environment.name
+        value: test
+        action: upsert
+
+connectors:
+  span_metrics/pds:
+    namespace: pds.http
+    histogram:
+      unit: ms
+    exemplars:
+      enabled: true
+    metrics_flush_interval: 15s
+    aggregation_cardinality_limit: 1000
+    resource_metrics_key_attributes:
+      - service.name
+
+exporters:
+  otlp_http/metrics:
+    endpoint: http://127.0.0.1:9090/api/v1/otlp
+    tls:
+      insecure: true
+  otlp_http/traces:
+    endpoint: http://127.0.0.1:4418
+    tls:
+      insecure: true
+  otlp_http/logs:
+    endpoint: http://127.0.0.1:3100/otlp
+    tls:
+      insecure: true
+  otlp_grpc/profiles:
+    endpoint: http://127.0.0.1:4040
+    tls:
+      insecure: true
+  debug/metrics:
+    verbosity: detailed
+  debug/traces:
+    verbosity: detailed
+  debug/logs:
+    verbosity: detailed
+
+service:
+  extensions: [health_check, file_storage]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [otlp_http/traces]
+    traces/pds-metrics:
+      receivers: [datadog/pds]
+      processors: [batch]
+      exporters: [otlp_http/traces, span_metrics/pds]
+    metrics:
+      receivers: [otlp, prometheus/collector, span_metrics/pds]
+      processors: [batch]
+      exporters: [otlp_http/metrics]
+    metrics/plc:
+      receivers: [postgresql/plc]
+      processors: [resource/plc, batch]
+      exporters: [otlp_http/metrics]
+    logs/otlp:
+      receivers: [otlp]
+      processors: [transform/otlp_logs_json, batch]
+      exporters: [otlp_http/logs]
+    logs/pds:
+      receivers: [filelog/pds]
+      processors: [batch]
+      exporters: [otlp_http/logs]
+    profiles:
+      receivers: [otlp]
+      exporters: [otlp_grpc/profiles]

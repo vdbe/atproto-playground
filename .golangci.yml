@@ -1,0 +1,182 @@
+version: "2"
+
+# Enforce Go best practices. The linter set is fully explicit (default: none)
+# so a new golangci-lint release can never silently weaken or expand the gate.
+linters:
+  default: none
+  enable:
+    # --- Core correctness & vetting ---
+    - govet
+    - staticcheck
+    - errcheck
+    - ineffassign
+    - unused
+
+    # --- Style & opinionated best practices ---
+    - revive
+    - gocritic
+    - gosec
+
+    # --- Error & context handling ---
+    - errorlint
+    - errname
+    - nilerr
+    - nilnil
+    - noctx
+    - contextcheck
+    - fatcontext
+
+    # --- Bug & pitfall detection ---
+    - bodyclose
+    - sqlclosecheck
+    - rowserrcheck
+    - exhaustive
+    - copyloopvar
+    - makezero
+    - unconvert
+    - wastedassign
+    - reassign
+    - prealloc
+    - unparam
+    - intrange
+    - durationcheck
+    - forcetypeassert
+    - nilnesserr
+    - asasalint
+    - bidichk
+    - gocheckcompilerdirectives
+
+    # --- API & stdlib usage ---
+    - mirror
+    - perfsprint
+    - predeclared
+    - usestdlibvars
+    - nosprintfhostport
+    - canonicalheader
+    - musttag
+    - errchkjson
+    - exptostd
+
+    # --- Readability ---
+    - whitespace
+    - dupword
+    - misspell
+    - goconst
+    - gocyclo
+    - godox
+
+    # --- Test best practices ---
+    - paralleltest
+    - thelper
+    - usetesting
+    - testifylint
+
+    # --- Project-specific (OpenTelemetry + slog) ---
+    - spancheck
+    - loggercheck
+
+    # --- Housekeeping ---
+    - nolintlint
+    - gomodguard_v2
+
+  settings:
+    errcheck:
+      check-type-assertions: true   # Catch ignored type assertion failures
+      check-blank: true             # Catch explicit _ = fn() error suppression
+
+    govet:
+      enable-all: true              # Enable all govet analyzers including shadow
+      disable:
+        - fieldalignment            # Too noisy; enable only if you want strict memory layout
+
+    revive:
+      rules:
+        # --- Core style ---
+        - name: exported
+        - name: error-return
+        - name: error-naming
+        - name: if-return
+        - name: var-naming
+        - name: indent-error-flow
+        - name: useless-break
+        - name: unreachable-code
+        - name: redefines-builtin-id
+        - name: empty-block
+        - name: superfluous-else
+        - name: unused-parameter
+        - name: confusing-naming
+        - name: defer
+
+        # --- Additional best-practice rules ---
+        - name: package-comments
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: errorf
+        - name: dot-imports
+        - name: import-shadowing
+        - name: range-val-address
+        - name: string-of-int
+        - name: struct-tag
+        - name: time-equal
+        - name: unexported-return
+        - name: unnecessary-stmt
+        - name: increment-decrement
+        - name: modifies-value-receiver
+        - name: waitgroup-by-value
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - hugeParam        # Can be overly aggressive
+        - rangeValCopy     # Often false positive with small structs
+
+    exhaustive:
+      default-signifies-exhaustive: true
+
+    gosec:
+      severity: medium
+      confidence: medium
+
+    gocyclo:
+      min-complexity: 15
+
+    paralleltest:
+      ignore-missing: true   # Do not force t.Parallel; t.Setenv forbids it in tests
+
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+  exclusions:
+    paths:
+      - vendor
+      - testdata
+      - mocks
+      - generated
+    rules:
+      # Test fixtures are constructed by the tests themselves: unchecked type
+      # assertions, repeated endpoint strings, and long assertion chains are
+      # intentional there.
+      - path: '.*_test\.go'
+        linters:
+          - forcetypeassert
+          - goconst
+          - gocyclo
+
+formatters:
+  enable:
+    - gofumpt
+    - goimports
+  exclusions:
+    paths:
+      - vendor
+
+issues:
+  fix: true
+  max-issues-per-linter: 0   # Show all issues, never truncate
+  max-same-issues: 0         # Do not hide repeated issue patterns

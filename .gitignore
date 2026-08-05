@@ -1,3 +1,7 @@
+# go
+/main
+/bot
+
 # direnv
 .direnv/
 .env*

@@ -190,8 +190,8 @@ func TestNewProvidesTraceContextAndBaggagePropagation(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() {
-		if err := telemetry.Shutdown(); err != nil {
-			t.Errorf("shut down telemetry: %v", err)
+		if shutdownErr := telemetry.Shutdown(); shutdownErr != nil {
+			t.Errorf("shut down telemetry: %v", shutdownErr)
 		}
 	})
 

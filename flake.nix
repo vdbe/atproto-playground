@@ -23,8 +23,7 @@
       packages = forAllSystems ({ ... }:
         let
         in
-        {
-        });
+        { });
 
       formatter = forAllSystems ({ pkgs, ... }: pkgs.treefmt);
 
@@ -43,14 +42,15 @@
                 pkgs.nixf-diagnose
                 pkgs.nixpkgs-fmt
                 pkgs.shellcheck
+                pkgs.shfmt
                 pkgs.treefmt
                 pkgs.typos
                 # keep-sorted end
 
                 # Go tools
                 # keep-sorted start
-                pkgs.go-tools
                 pkgs.go
+                pkgs.go-tools
                 pkgs.gomodifytags
                 pkgs.gopls
                 pkgs.gotests
@@ -59,8 +59,8 @@
 
                 # Random tools
                 # keep-sorted start
-                pkgs.jq
                 pkgs.atproto-goat
+                pkgs.jq
                 # keep-sorted end
               ];
             };

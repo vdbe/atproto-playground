@@ -28,7 +28,7 @@ type fakeLexClient struct {
 	do func(method, endpoint string, body, out any) error
 }
 
-func (f *fakeLexClient) LexDo(_ context.Context, method, _ string, endpoint string, _ map[string]any, body, out any) error {
+func (f *fakeLexClient) LexDo(_ context.Context, method, _, endpoint string, _ map[string]any, body, out any) error {
 	return f.do(method, endpoint, body, out)
 }
 
@@ -47,7 +47,11 @@ func TestPostRecordContents(t *testing.T) {
 			if endpoint != "com.atproto.repo.createRecord" {
 				t.Fatalf("unexpected endpoint %q", endpoint)
 			}
-			input = body.(*comatproto.RepoCreateRecord_Input)
+			var ok bool
+			input, ok = body.(*comatproto.RepoCreateRecord_Input)
+			if !ok {
+				t.Fatalf("unexpected record type %T", body)
+			}
 			return nil
 		}}
 
@@ -166,7 +170,10 @@ func TestLabelProfilePreservesFieldsAndLabels(t *testing.T) {
 	client := &fakeLexClient{do: func(_, endpoint string, body, out any) error {
 		switch endpoint {
 		case "com.atproto.repo.getRecord":
-			result := out.(*comatproto.RepoGetRecord_Output)
+			result, ok := out.(*comatproto.RepoGetRecord_Output)
+			if !ok {
+				t.Fatalf("unexpected output type %T", out)
+			}
 			result.Cid = stringPointer("bafy-profile")
 			result.Value = &lexutil.LexiconTypeDecoder{Val: &appbsky.ActorProfile{
 				Description: &description,
@@ -176,7 +183,11 @@ func TestLabelProfilePreservesFieldsAndLabels(t *testing.T) {
 			}}
 			return nil
 		case "com.atproto.repo.putRecord":
-			put = body.(*comatproto.RepoPutRecord_Input)
+			var ok bool
+			put, ok = body.(*comatproto.RepoPutRecord_Input)
+			if !ok {
+				t.Fatalf("unexpected record type %T", body)
+			}
 			return nil
 		default:
 			t.Fatalf("unexpected endpoint %q", endpoint)
@@ -191,7 +202,10 @@ func TestLabelProfilePreservesFieldsAndLabels(t *testing.T) {
 		t.Fatalf("unexpected put input: %+v", put)
 	}
 
-	profile := put.Record.Val.(*appbsky.ActorProfile)
+	profile, ok := put.Record.Val.(*appbsky.ActorProfile)
+	if !ok {
+		t.Fatalf("unexpected record type %T", put.Record.Val)
+	}
 	if profile.Description == nil || *profile.Description != description {
 		t.Fatal("description was not preserved")
 	}
@@ -212,12 +226,18 @@ func TestLabelProfileRejectsConcurrentProfileEdit(t *testing.T) {
 	client := &fakeLexClient{do: func(_, endpoint string, body, out any) error {
 		switch endpoint {
 		case "com.atproto.repo.getRecord":
-			result := out.(*comatproto.RepoGetRecord_Output)
+			result, ok := out.(*comatproto.RepoGetRecord_Output)
+			if !ok {
+				t.Fatalf("unexpected output type %T", out)
+			}
 			result.Cid = stringPointer(fetchedCID)
 			result.Value = &lexutil.LexiconTypeDecoder{Val: &appbsky.ActorProfile{}}
 			return nil
 		case "com.atproto.repo.putRecord":
-			put := body.(*comatproto.RepoPutRecord_Input)
+			put, ok := body.(*comatproto.RepoPutRecord_Input)
+			if !ok {
+				t.Fatalf("unexpected record type %T", body)
+			}
 			if put.SwapRecord != nil && *put.SwapRecord != currentCID {
 				return &atclient.APIError{StatusCode: 400, Name: "InvalidSwap"}
 			}
@@ -244,7 +264,11 @@ func TestLabelProfileIsIdempotent(t *testing.T) {
 	client := &fakeLexClient{do: func(_, endpoint string, _, out any) error {
 		switch endpoint {
 		case "com.atproto.repo.getRecord":
-			out.(*comatproto.RepoGetRecord_Output).Value = &lexutil.LexiconTypeDecoder{Val: &appbsky.ActorProfile{
+			result, ok := out.(*comatproto.RepoGetRecord_Output)
+			if !ok {
+				t.Fatalf("unexpected output type %T", out)
+			}
+			result.Value = &lexutil.LexiconTypeDecoder{Val: &appbsky.ActorProfile{
 				Labels: &appbsky.ActorProfile_Labels{LabelDefs_SelfLabels: &comatproto.LabelDefs_SelfLabels{
 					Values: []*comatproto.LabelDefs_SelfLabel{{Val: "bot"}},
 				}},
@@ -269,12 +293,16 @@ func TestLabelProfileIsIdempotent(t *testing.T) {
 
 func TestLabelProfileCreatesMissingProfile(t *testing.T) {
 	var put *comatproto.RepoPutRecord_Input
-	client := &fakeLexClient{do: func(_, endpoint string, body, out any) error {
+	client := &fakeLexClient{do: func(_, endpoint string, body, _ any) error {
 		switch endpoint {
 		case "com.atproto.repo.getRecord":
 			return &atclient.APIError{StatusCode: 400, Name: "RecordNotFound"}
 		case "com.atproto.repo.putRecord":
-			put = body.(*comatproto.RepoPutRecord_Input)
+			var ok bool
+			put, ok = body.(*comatproto.RepoPutRecord_Input)
+			if !ok {
+				t.Fatalf("unexpected record type %T", body)
+			}
 			return nil
 		default:
 			t.Fatalf("unexpected endpoint %q", endpoint)
@@ -289,7 +317,10 @@ func TestLabelProfileCreatesMissingProfile(t *testing.T) {
 		t.Fatalf("unexpected put input: %+v", put)
 	}
 
-	profile := put.Record.Val.(*appbsky.ActorProfile)
+	profile, ok := put.Record.Val.(*appbsky.ActorProfile)
+	if !ok {
+		t.Fatalf("unexpected record type %T", put.Record.Val)
+	}
 	labels := profile.Labels.LabelDefs_SelfLabels.Values
 	if len(labels) != 1 || labels[0].Val != "bot" {
 		t.Fatalf("unexpected labels: %+v", labels)

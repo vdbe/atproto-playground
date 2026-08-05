@@ -1,6 +1,10 @@
+// Package main runs the ATProto development bot: it loads local configuration,
+// logs in to a local PDS, labels the bot profile, and posts on a schedule.
 package main
 
 import (
+	"atproto-dev/internal/bot"
+	"atproto-dev/internal/telemetry"
 	"context"
 	"errors"
 	"fmt"
@@ -12,9 +16,6 @@ import (
 	"strings"
 	"syscall"
 	"time"
-
-	"atproto-dev/internal/bot"
-	"atproto-dev/internal/telemetry"
 
 	comatproto "github.com/bluesky-social/indigo/api/atproto"
 	"github.com/bluesky-social/indigo/atproto/atclient"
@@ -38,7 +39,7 @@ func main() {
 }
 
 func run() (runErr error) {
-	if len(os.Args) == 2 && (os.Args[1] == "-h" || os.Args[1] == "--help") {
+	if usageRequested(os.Args) {
 		fmt.Println(usage)
 		return nil
 	}
@@ -79,25 +80,17 @@ func run() (runErr error) {
 	slog.SetDefault(logger)
 
 	// Create instruments for the command and bot packages
-	commandInstruments, err := bot.NewInstruments(commandScope, observability.TracerProvider(), observability.MeterProvider())
+	commandInstruments, err := newInstruments(observability, commandScope)
 	if err != nil {
-		return fmt.Errorf("create command telemetry: %w", err)
+		return err
 	}
-	botInstruments, err := bot.NewInstruments(botScope, observability.TracerProvider(), observability.MeterProvider())
+	botInstruments, err := newInstruments(observability, botScope)
 	if err != nil {
-		return fmt.Errorf("create bot telemetry: %w", err)
+		return err
 	}
 
 	// Validate required environment variables for account login
-	pds, err := requiredURL("ACCOUNT_PDS")
-	if err != nil {
-		return err
-	}
-	handle, err := requiredEnv("ACCOUNT_HANDLE")
-	if err != nil {
-		return err
-	}
-	password, err := requiredEnv("ACCOUNT_PASSWORD")
+	pds, handle, password, err := loadAccountConfig()
 	if err != nil {
 		return err
 	}
@@ -128,7 +121,7 @@ func run() (runErr error) {
 		}
 	}()
 	if client.AccountDID == nil {
-		return fmt.Errorf("login response did not include an account DID")
+		return errors.New("login response did not include an account DID")
 	}
 
 	app := &bot.Bot{
@@ -137,6 +130,42 @@ func run() (runErr error) {
 		Logger:    botLogger,
 		Telemetry: botInstruments,
 	}
+	return runBot(ctx, app, logger)
+}
+
+// usageRequested reports whether the process was invoked with a help flag.
+func usageRequested(args []string) bool {
+	return len(args) == 2 && (args[1] == "-h" || args[1] == "--help")
+}
+
+// newInstruments creates bot telemetry instruments under the supplied scope.
+func newInstruments(observability *telemetry.Telemetry, scope string) (*bot.Instruments, error) {
+	instruments, err := bot.NewInstruments(scope, observability.TracerProvider(), observability.MeterProvider())
+	if err != nil {
+		return nil, fmt.Errorf("create %s telemetry: %w", scope, err)
+	}
+	return instruments, nil
+}
+
+// loadAccountConfig validates and returns the account environment variables.
+func loadAccountConfig() (pds, handle, password string, err error) {
+	pds, err = requiredURL("ACCOUNT_PDS")
+	if err != nil {
+		return "", "", "", err
+	}
+	handle, err = requiredEnv("ACCOUNT_HANDLE")
+	if err != nil {
+		return "", "", "", err
+	}
+	password, err = requiredEnv("ACCOUNT_PASSWORD")
+	if err != nil {
+		return "", "", "", err
+	}
+	return pds, handle, password, nil
+}
+
+// runBot labels the bot profile and runs the posting loop until the context is canceled.
+func runBot(ctx context.Context, app *bot.Bot, logger *slog.Logger) error {
 	if err := app.LabelProfile(ctx); err != nil {
 		if errors.Is(err, context.Canceled) {
 			return nil
@@ -150,7 +179,7 @@ func run() (runErr error) {
 	return nil
 }
 
-func login(ctx context.Context, pds string, handle string, password string, httpClient *http.Client, instruments *bot.Instruments, logger *slog.Logger) (client *atclient.APIClient, err error) {
+func login(ctx context.Context, pds, handle, password string, httpClient *http.Client, instruments *bot.Instruments, logger *slog.Logger) (client *atclient.APIClient, err error) {
 	// Bound the entire login operation independently of the HTTP client's request timeout.
 	ctx, cancel := context.WithTimeout(ctx, httpTimeout)
 	defer cancel()

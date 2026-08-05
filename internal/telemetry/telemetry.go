@@ -29,6 +29,13 @@ import (
 
 const defaultShutdownTimeout = 5 * time.Second
 
+// OTLP signal endpoint environment variables, shared with the test suite.
+const (
+	otlpTracesEndpointEnv  = "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT"
+	otlpMetricsEndpointEnv = "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT"
+	otlpLogsEndpointEnv    = "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT"
+)
+
 // Config describes process telemetry. OTLP is enabled only when a common
 // endpoint or all three signal-specific endpoints are explicitly configured.
 type Config struct {
@@ -54,7 +61,7 @@ type Telemetry struct {
 // OTLP/gRPC providers for logs, traces, and metrics.
 func New(ctx context.Context, config Config) (*Telemetry, error) {
 	if config.ServiceName == "" {
-		return nil, fmt.Errorf("telemetry service name is required")
+		return nil, errors.New("telemetry service name is required")
 	}
 	if config.Stdout == nil {
 		config.Stdout = slog.NewTextHandler(os.Stderr, nil)
@@ -105,7 +112,7 @@ func newOTLPProvider(ctx context.Context, config Config, propagator propagation.
 
 	metricExporter, err := otlpmetricgrpc.New(ctx)
 	if err != nil {
-		shutdownOnFailure(config.ShutdownTimeout, cleanup)
+		shutdownOnFailure(ctx, config.ShutdownTimeout, cleanup)
 		return nil, fmt.Errorf("create OTLP metric exporter: %w", err)
 	}
 
@@ -117,7 +124,7 @@ func newOTLPProvider(ctx context.Context, config Config, propagator propagation.
 
 	logExporter, err := otlploggrpc.New(ctx)
 	if err != nil {
-		shutdownOnFailure(config.ShutdownTimeout, cleanup)
+		shutdownOnFailure(ctx, config.ShutdownTimeout, cleanup)
 		return nil, fmt.Errorf("create OTLP log exporter: %w", err)
 	}
 
@@ -188,9 +195,9 @@ func otlpEnabled() (bool, error) {
 
 	configured := 0
 	for _, name := range []string{
-		"OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
-		"OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+		otlpTracesEndpointEnv,
+		otlpMetricsEndpointEnv,
+		otlpLogsEndpointEnv,
 	} {
 		if endpoint := strings.TrimSpace(os.Getenv(name)); endpoint != "" {
 			if err := validateOTLPEndpoint(name, endpoint); err != nil {
@@ -206,7 +213,7 @@ func otlpEnabled() (bool, error) {
 	}
 
 	if configured != 0 && configured != 3 {
-		return false, fmt.Errorf("configure OTEL_EXPORTER_OTLP_ENDPOINT or all three signal-specific OTLP endpoints")
+		return false, errors.New("configure OTEL_EXPORTER_OTLP_ENDPOINT or all three signal-specific OTLP endpoints")
 	}
 
 	return configured == 3, nil
@@ -231,9 +238,11 @@ func joinShutdown(first, second func(context.Context) error) func(context.Contex
 	}
 }
 
-func shutdownOnFailure(timeout time.Duration, shutdown func(context.Context) error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+func shutdownOnFailure(ctx context.Context, timeout time.Duration, shutdown func(context.Context) error) {
+	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	_ = shutdown(ctx)
+	if err := shutdown(shutdownCtx); err != nil {
+		slog.Default().Error("telemetry shutdown after setup failure", "err", err)
+	}
 }

@@ -1,3 +1,6 @@
+// Package telemetry configures OpenTelemetry logging, tracing, and metrics for
+// the development stack, and provides a fanout handler that mirrors logs to
+// stdout.
 package telemetry
 
 import (

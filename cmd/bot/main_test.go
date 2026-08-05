@@ -1,14 +1,13 @@
 package main
 
 import (
+	"atproto-dev/internal/bot"
 	"context"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-
-	"atproto-dev/internal/bot"
 
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	metricnoop "go.opentelemetry.io/otel/metric/noop"
@@ -49,7 +48,9 @@ func TestLoginRequestIsLinkedToLoginSpan(t *testing.T) {
 		}
 
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(w, `{"accessJwt":"access","refreshJwt":"refresh","did":"did:plc:testbot","handle":"bot.test"}`)
+		if _, err := io.WriteString(w, `{"accessJwt":"access","refreshJwt":"refresh","did":"did:plc:testbot","handle":"bot.test"}`); err != nil {
+			t.Errorf("write login response: %v", err)
+		}
 	}))
 	t.Cleanup(server.Close)
 

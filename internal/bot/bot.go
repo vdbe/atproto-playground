@@ -1,3 +1,5 @@
+// Package bot implements the authenticated Bluesky behavior for the development
+// bot, including profile self labeling and periodic posting.
 package bot
 
 import (
@@ -16,6 +18,7 @@ import (
 const (
 	postCollection    = "app.bsky.feed.post"
 	profileCollection = "app.bsky.actor.profile"
+	botSelfLabel      = "bot"
 )
 
 // Bot contains the authenticated Bluesky behavior.
@@ -37,7 +40,7 @@ func (b *Bot) LabelProfile(ctx context.Context) (err error) {
 	record, err := comatproto.RepoGetRecord(ctx, b.Client, "", profileCollection, b.Repo, "self")
 	if err == nil {
 		if record.Value == nil {
-			return fmt.Errorf("profile record contains no value")
+			return errors.New("profile record contains no value")
 		}
 
 		decoded, ok := record.Value.Val.(*appbsky.ActorProfile)
@@ -55,7 +58,7 @@ func (b *Bot) LabelProfile(ctx context.Context) (err error) {
 
 	if profile.Labels != nil && profile.Labels.LabelDefs_SelfLabels != nil {
 		for _, label := range profile.Labels.LabelDefs_SelfLabels.Values {
-			if label != nil && label.Val == "bot" {
+			if label != nil && label.Val == botSelfLabel {
 				b.logger().InfoContext(ctx, "profile already labeled as bot", "operation", "label_profile", "outcome", "success")
 				return nil
 			}
@@ -67,7 +70,7 @@ func (b *Bot) LabelProfile(ctx context.Context) (err error) {
 	}
 	profile.Labels.LabelDefs_SelfLabels.Values = append(
 		profile.Labels.LabelDefs_SelfLabels.Values,
-		&comatproto.LabelDefs_SelfLabel{Val: "bot"},
+		&comatproto.LabelDefs_SelfLabel{Val: botSelfLabel},
 	)
 
 	// Push the updated profile record back to the repo.
@@ -92,7 +95,7 @@ func (b *Bot) LabelProfile(ctx context.Context) (err error) {
 // The initial post must succeed; later failures are logged and retried.
 func (b *Bot) Run(ctx context.Context, interval time.Duration) error {
 	if interval <= 0 {
-		return fmt.Errorf("post interval must be positive")
+		return errors.New("post interval must be positive")
 	}
 
 	if err := b.post(ctx); err != nil {

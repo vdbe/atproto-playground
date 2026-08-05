@@ -41,16 +41,19 @@ func NewInstruments(scope string, tracerProvider trace.TracerProvider, meterProv
 
 // StartOperation starts a named bot span and returns an idempotent completion
 // function that records one duration and count with bounded outcome attributes.
-func (i *Instruments) StartOperation(ctx context.Context, name string) (context.Context, func(error)) {
+//
+//nolint:spancheck // The span is ended exactly once inside the returned finish closure; spancheck cannot trace it.
+func (i *Instruments) StartOperation(ctx context.Context, name string) (outCtx context.Context, finish func(error)) {
 	if i == nil {
 		return ctx, func(error) {}
 	}
 
+	// The span is ended exactly once by the finish closure returned below.
 	ctx, span := i.tracer.Start(ctx, name)
 	started := time.Now()
 
 	var once sync.Once
-	return ctx, func(err error) {
+	finish = func(err error) {
 		once.Do(func() {
 			outcome := "success"
 			if err != nil {
@@ -73,4 +76,5 @@ func (i *Instruments) StartOperation(ctx context.Context, name string) (context.
 			span.End()
 		})
 	}
+	return ctx, finish
 }

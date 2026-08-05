@@ -21,10 +21,14 @@ if ! command -v goat >/dev/null 2>&1; then
 fi
 
 # Save any pre-existing values (environment takes precedence over .env)
-has_PDS="${ACCOUNT_PDS+x}";       saved_PDS="${ACCOUNT_PDS-}"
-has_HANDLE="${ACCOUNT_HANDLE+x}"; saved_HANDLE="${ACCOUNT_HANDLE-}"
-has_EMAIL="${ACCOUNT_EMAIL+x}";   saved_EMAIL="${ACCOUNT_EMAIL-}"
-has_PASS="${ACCOUNT_PASSWORD+x}"; saved_PASS="${ACCOUNT_PASSWORD-}"
+has_PDS="${ACCOUNT_PDS+x}"
+saved_PDS="${ACCOUNT_PDS-}"
+has_HANDLE="${ACCOUNT_HANDLE+x}"
+saved_HANDLE="${ACCOUNT_HANDLE-}"
+has_EMAIL="${ACCOUNT_EMAIL+x}"
+saved_EMAIL="${ACCOUNT_EMAIL-}"
+has_PASS="${ACCOUNT_PASSWORD+x}"
+saved_PASS="${ACCOUNT_PASSWORD-}"
 
 set -a
 # shellcheck disable=SC1090
@@ -32,15 +36,27 @@ set -a
 set +a
 
 # Restore environment values over .env values
-if [ -n "$has_PDS" ];    then ACCOUNT_PDS="$saved_PDS";          export ACCOUNT_PDS; fi
-if [ -n "$has_HANDLE" ]; then ACCOUNT_HANDLE="$saved_HANDLE";    export ACCOUNT_HANDLE; fi
-if [ -n "$has_EMAIL" ];  then ACCOUNT_EMAIL="$saved_EMAIL";      export ACCOUNT_EMAIL; fi
-if [ -n "$has_PASS" ];   then ACCOUNT_PASSWORD="$saved_PASS";    export ACCOUNT_PASSWORD; fi
+if [ -n "$has_PDS" ]; then
+  ACCOUNT_PDS="$saved_PDS"
+  export ACCOUNT_PDS
+fi
+if [ -n "$has_HANDLE" ]; then
+  ACCOUNT_HANDLE="$saved_HANDLE"
+  export ACCOUNT_HANDLE
+fi
+if [ -n "$has_EMAIL" ]; then
+  ACCOUNT_EMAIL="$saved_EMAIL"
+  export ACCOUNT_EMAIL
+fi
+if [ -n "$has_PASS" ]; then
+  ACCOUNT_PASSWORD="$saved_PASS"
+  export ACCOUNT_PASSWORD
+fi
 
 # Validate
-require_var ACCOUNT_PDS      "${ACCOUNT_PDS:-}"
-require_var ACCOUNT_HANDLE   "${ACCOUNT_HANDLE:-}"
-require_var ACCOUNT_EMAIL    "${ACCOUNT_EMAIL:-}"
+require_var ACCOUNT_PDS "${ACCOUNT_PDS:-}"
+require_var ACCOUNT_HANDLE "${ACCOUNT_HANDLE:-}"
+require_var ACCOUNT_EMAIL "${ACCOUNT_EMAIL:-}"
 require_var ACCOUNT_PASSWORD "${ACCOUNT_PASSWORD:-}"
 
 if ! curl --fail --silent --show-error --max-time 5 "${ACCOUNT_PDS%/}/xrpc/_health" >/dev/null; then

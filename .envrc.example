@@ -1,0 +1,12 @@
+if has nix_direnv_version; then
+    use flake
+fi
+
+
+watch_file flake.nix
+dotenv_if_exists
+
+# Auto-configure git hooks on direnv entry
+if [ -d .githooks ]; then
+  git config --local core.hooksPath .githooks 2>/dev/null || true
+fi

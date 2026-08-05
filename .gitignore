@@ -1,0 +1,11 @@
+# direnv
+.direnv/
+.env*
+
+
+# nix
+result
+result-*
+repl-result-*
+
+!*.example

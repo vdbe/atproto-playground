@@ -1,5 +1,8 @@
 name: atproto-dev
 
+x-pds-image: &pds-image
+  ghcr.io/bluesky-social/atproto:pds-5043c7a1c922a79baba972f27d1abb75675e9705@sha256:f2c7e2ef3448e9f6b1334815630373b0db6a47093c5777722787f6a8cf4bc3d1
+
 services:
   plc-db:
     image: docker.io/postgres:14-alpine@sha256:f1341c01408dc7278e9d365ed4f860cd3f87dd16b4464ac326fc0f422083a579
@@ -112,6 +115,31 @@ services:
       timeout: 5s
       retries: 12
 
+  # Keep container running and use `condition: service_healthy` instead of `service_completed_successfully`
+  # since podman compose doesn't seem to handle that condition correctly when it doesn't see the container
+  # exit.
+  pds-log-init:
+    image: *pds-image
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        chown -R node:node /var/log/pds
+        chmod 0755 /var/log/pds
+        touch /tmp/initialized
+        exec sleep infinity
+    volumes:
+      - pds_logs:/var/log/pds
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/initialized"]
+      start_interval: 1s
+      start_period: 10s
+      interval: 30s
+      timeout: 2s
+      retries: 3
+    restart: unless-stopped
+
   pds:
     # Develop against atproto head
     # Tag format: ghcr.io/bluesky-social/atproto:pds-<commit-sha>@<digest>
@@ -126,6 +154,8 @@ services:
       - pds_logs:/var/log/pds
     depends_on:
       plc:
+        condition: service_healthy
+      pds-log-init:
         condition: service_healthy
     healthcheck:
       test: [CMD, wget, -q, -O, /dev/null, http://127.0.0.1:2583/xrpc/_health]

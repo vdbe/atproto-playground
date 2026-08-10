@@ -164,6 +164,71 @@ func assertOperationAttributes(t *testing.T, attrs attribute.Set) {
 	}
 }
 
+func TestBoundInstrumentAttributesAreImmutable(t *testing.T) {
+	reader := sdkmetric.NewManualReader()
+	meterProvider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
+	t.Cleanup(func() {
+		if err := meterProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("shut down meter provider: %v", err)
+		}
+	})
+	tracerProvider := sdktrace.NewTracerProvider()
+	t.Cleanup(func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("shut down tracer provider: %v", err)
+		}
+	})
+	instruments, err := NewInstruments("test", tracerProvider, meterProvider)
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := instruments.WithAttributes(attribute.String("test.name", "first"))
+	second := instruments.WithAttributes(attribute.String("test.name", "second"))
+	_, finishFirst := first.StartOperation(context.Background(), "bot.create_post")
+	finishFirst(nil)
+	_, finishSecond := second.StartOperation(context.Background(), "bot.create_post")
+	finishSecond(nil)
+
+	var metrics metricdata.ResourceMetrics
+	if err := reader.Collect(context.Background(), &metrics); err != nil {
+		t.Fatal(err)
+	}
+	for _, scope := range metrics.ScopeMetrics {
+		for _, instrument := range scope.Metrics {
+			switch data := instrument.Data.(type) {
+			case metricdata.Sum[int64]:
+				sets := make([]attribute.Set, 0, len(data.DataPoints))
+				for _, point := range data.DataPoints {
+					sets = append(sets, point.Attributes)
+				}
+				assertBoundNames(t, sets)
+			case metricdata.Histogram[float64]:
+				sets := make([]attribute.Set, 0, len(data.DataPoints))
+				for _, point := range data.DataPoints {
+					sets = append(sets, point.Attributes)
+				}
+				assertBoundNames(t, sets)
+			}
+		}
+	}
+}
+
+func assertBoundNames(t *testing.T, sets []attribute.Set) {
+	t.Helper()
+	want := map[string]bool{"first": false, "second": false}
+	for _, attrs := range sets {
+		value, ok := attrs.Value("test.name")
+		if ok {
+			want[value.AsString()] = true
+		}
+	}
+	for name, found := range want {
+		if !found {
+			t.Errorf("bound metric test.name %q not found", name)
+		}
+	}
+}
+
 func TestLabelProfilePreservesFieldsAndLabels(t *testing.T) {
 	description := "Existing profile"
 	var put *comatproto.RepoPutRecord_Input

@@ -17,6 +17,18 @@ type Instruments struct {
 	tracer   trace.Tracer
 	count    metric.Int64Counter
 	duration metric.Float64Histogram
+	attrs    []attribute.KeyValue
+}
+
+// WithAttributes returns instruments that add attrs to every metric record.
+// The returned value shares the concurrency-safe OpenTelemetry instruments.
+func (i *Instruments) WithAttributes(attrs ...attribute.KeyValue) *Instruments {
+	if i == nil {
+		return nil
+	}
+	bound := *i
+	bound.attrs = append(append([]attribute.KeyValue(nil), i.attrs...), attrs...)
+	return &bound
 }
 
 // NewInstruments creates bot instruments under the supplied scope.
@@ -66,10 +78,12 @@ func (i *Instruments) StartOperation(ctx context.Context, name string) (outCtx c
 				}
 			}
 
-			attrs := metric.WithAttributes(
+			attributes := append([]attribute.KeyValue(nil), i.attrs...)
+			attributes = append(attributes,
 				attribute.String("operation", name),
 				attribute.String("outcome", outcome),
 			)
+			attrs := metric.WithAttributes(attributes...)
 			i.count.Add(ctx, 1, attrs)
 			i.duration.Record(ctx, time.Since(started).Seconds(), attrs)
 

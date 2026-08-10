@@ -26,6 +26,18 @@ type logExporter struct {
 	records []sdklog.Record
 }
 
+type countingSpanProcessor struct {
+	shutdowns atomic.Int32
+}
+
+func (*countingSpanProcessor) OnStart(context.Context, sdktrace.ReadWriteSpan) {}
+func (*countingSpanProcessor) OnEnd(sdktrace.ReadOnlySpan)                     {}
+func (*countingSpanProcessor) ForceFlush(context.Context) error                { return nil }
+func (p *countingSpanProcessor) Shutdown(context.Context) error {
+	p.shutdowns.Add(1)
+	return nil
+}
+
 func (e *logExporter) Export(_ context.Context, records []sdklog.Record) error {
 	e.mu.Lock()
 	defer e.mu.Unlock()
@@ -141,6 +153,111 @@ func TestDisabledProviderRetainsStdoutOnly(t *testing.T) {
 	}
 	if err := telemetry.Shutdown(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestDisabledProviderOwnsCustomProcessorLifecycle(t *testing.T) {
+	clearOTLPEnv(t)
+	processor := &countingSpanProcessor{}
+	telemetry, err := New(context.Background(), Config{
+		ServiceName:    "test",
+		Stdout:         slog.NewTextHandler(&bytes.Buffer{}, nil),
+		SpanProcessors: []sdktrace.SpanProcessor{processor},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := telemetry.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if err := telemetry.Shutdown(); err != nil {
+		t.Fatal(err)
+	}
+	if processor.shutdowns.Load() != 1 {
+		t.Fatalf("processor shutdowns = %d, want 1", processor.shutdowns.Load())
+	}
+}
+
+func TestInitializationFailureOwnsCustomProcessorLifecycle(t *testing.T) {
+	clearOTLPEnv(t)
+	processor := &countingSpanProcessor{}
+	_, err := New(context.Background(), Config{
+		SpanProcessors: []sdktrace.SpanProcessor{processor},
+	})
+	if err == nil {
+		t.Fatal("missing service name should fail")
+	}
+	if processor.shutdowns.Load() != 1 {
+		t.Fatalf("processor shutdowns = %d, want 1", processor.shutdowns.Load())
+	}
+}
+
+func TestConfigurationFailureOwnsCustomProcessorLifecycle(t *testing.T) {
+	clearOTLPEnv(t)
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "invalid")
+	processor := &countingSpanProcessor{}
+	_, err := New(context.Background(), Config{
+		ServiceName:    "test",
+		SpanProcessors: []sdktrace.SpanProcessor{processor},
+	})
+	if err == nil {
+		t.Fatal("invalid endpoint should fail")
+	}
+	if processor.shutdowns.Load() != 1 {
+		t.Fatalf("processor shutdowns = %d, want 1", processor.shutdowns.Load())
+	}
+}
+
+func TestSDKDisabledOverridesConfiguredExporter(t *testing.T) {
+	clearOTLPEnv(t)
+	t.Setenv("OTEL_SDK_DISABLED", "true")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", "not-a-valid-endpoint")
+
+	enabled, err := otlpEnabled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if enabled {
+		t.Fatal("OTEL_SDK_DISABLED=true should disable configured exporters")
+	}
+}
+
+func TestResourceIncludesExplicitAttributes(t *testing.T) {
+	res, err := newResource(Config{
+		ServiceName: "test-service",
+		ResourceAttributes: []attribute.KeyValue{
+			attribute.String("run_id", "abc-123"),
+			attribute.String("test.kind", "integration"),
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	attrs := res.Set()
+	if value, ok := attrs.Value("service.name"); !ok || value.AsString() != "test-service" {
+		t.Fatalf("service.name = %v, want test-service", value)
+	}
+	if value, ok := attrs.Value("run_id"); !ok || value.AsString() != "abc-123" {
+		t.Fatalf("run_id = %v, want abc-123", value)
+	}
+	if value, ok := attrs.Value("test.kind"); !ok || value.AsString() != "integration" {
+		t.Fatalf("test.kind = %v, want integration", value)
+	}
+}
+
+func TestServiceNameCannotBeOverriddenByResourceAttributes(t *testing.T) {
+	res, err := newResource(Config{
+		ServiceName:        "configured-service",
+		ResourceAttributes: []attribute.KeyValue{attribute.String("service.name", "override")},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	value, ok := res.Set().Value("service.name")
+	if !ok || value.AsString() != "configured-service" {
+		t.Fatalf("service.name = %v, want configured-service", value)
 	}
 }
 

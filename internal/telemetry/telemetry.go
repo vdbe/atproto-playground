@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"go.opentelemetry.io/contrib/bridges/otelslog"
+	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlpmetric/otlpmetricgrpc"
 	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
@@ -39,9 +40,12 @@ const (
 // Config describes process telemetry. OTLP is enabled only when a common
 // endpoint or all three signal-specific endpoints are explicitly configured.
 type Config struct {
-	ServiceName     string
-	Stdout          slog.Handler
-	ShutdownTimeout time.Duration
+	ServiceName        string
+	Stdout             slog.Handler
+	ShutdownTimeout    time.Duration
+	ResourceAttributes []attribute.KeyValue
+	// Ownership of SpanProcessors transfers to New, including when New fails.
+	SpanProcessors []sdktrace.SpanProcessor
 }
 
 // Telemetry owns OpenTelemetry providers, propagation, and stdout logging.
@@ -60,14 +64,14 @@ type Telemetry struct {
 // New configures stdout logging and, when explicitly enabled, creates
 // OTLP/gRPC providers for logs, traces, and metrics.
 func New(ctx context.Context, config Config) (*Telemetry, error) {
+	if config.ShutdownTimeout <= 0 {
+		config.ShutdownTimeout = defaultShutdownTimeout
+	}
 	if config.ServiceName == "" {
-		return nil, errors.New("telemetry service name is required")
+		return nil, shutdownProcessorsAfterFailure(ctx, config, errors.New("telemetry service name is required"))
 	}
 	if config.Stdout == nil {
 		config.Stdout = slog.NewTextHandler(os.Stderr, nil)
-	}
-	if config.ShutdownTimeout <= 0 {
-		config.ShutdownTimeout = defaultShutdownTimeout
 	}
 
 	propagator := propagation.NewCompositeTextMapPropagator(
@@ -76,7 +80,7 @@ func New(ctx context.Context, config Config) (*Telemetry, error) {
 
 	enabled, err := otlpEnabled()
 	if err != nil {
-		return nil, err
+		return nil, shutdownProcessorsAfterFailure(ctx, config, err)
 	}
 	if !enabled {
 		return &Telemetry{
@@ -85,29 +89,56 @@ func New(ctx context.Context, config Config) (*Telemetry, error) {
 			meterProvider:  metricnoop.NewMeterProvider(),
 			propagator:     propagator,
 			timeout:        config.ShutdownTimeout,
+			shutdown:       spanProcessorShutdown(config.SpanProcessors),
 		}, nil
 	}
 	return newOTLPProvider(ctx, config, propagator)
 }
 
+func spanProcessorShutdown(processors []sdktrace.SpanProcessor) func(context.Context) error {
+	if len(processors) == 0 {
+		return nil
+	}
+	return func(ctx context.Context) error {
+		var err error
+		for _, processor := range processors {
+			if processor != nil {
+				err = errors.Join(err, processor.Shutdown(ctx))
+			}
+		}
+		return err
+	}
+}
+
+func shutdownProcessorsAfterFailure(ctx context.Context, config Config, setupErr error) error {
+	shutdown := spanProcessorShutdown(config.SpanProcessors)
+	if shutdown == nil {
+		return setupErr
+	}
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), config.ShutdownTimeout)
+	defer cancel()
+	return errors.Join(setupErr, shutdown(shutdownCtx))
+}
+
 func newOTLPProvider(ctx context.Context, config Config, propagator propagation.TextMapPropagator) (*Telemetry, error) {
-	res, err := resource.Merge(
-		resource.Default(),
-		resource.NewWithAttributes(semconv.SchemaURL, semconv.ServiceName(config.ServiceName)),
-	)
+	res, err := newResource(config)
 	if err != nil {
-		return nil, fmt.Errorf("create telemetry resource: %w", err)
+		return nil, shutdownProcessorsAfterFailure(ctx, config, fmt.Errorf("create telemetry resource: %w", err))
 	}
 
 	traceExporter, err := otlptracegrpc.New(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("create OTLP trace exporter: %w", err)
+		return nil, shutdownProcessorsAfterFailure(ctx, config, fmt.Errorf("create OTLP trace exporter: %w", err))
 	}
 
-	traceProvider := sdktrace.NewTracerProvider(
-		sdktrace.WithBatcher(traceExporter),
-		sdktrace.WithResource(res),
-	)
+	traceOptions := make([]sdktrace.TracerProviderOption, 0, len(config.SpanProcessors)+2)
+	for _, processor := range config.SpanProcessors {
+		if processor != nil {
+			traceOptions = append(traceOptions, sdktrace.WithSpanProcessor(processor))
+		}
+	}
+	traceOptions = append(traceOptions, sdktrace.WithBatcher(traceExporter), sdktrace.WithResource(res))
+	traceProvider := sdktrace.NewTracerProvider(traceOptions...)
 	cleanup := func(ctx context.Context) error { return traceProvider.Shutdown(ctx) }
 
 	metricExporter, err := otlpmetricgrpc.New(ctx)
@@ -143,6 +174,15 @@ func newOTLPProvider(ctx context.Context, config Config, propagator propagation.
 		timeout:        config.ShutdownTimeout,
 		shutdown:       cleanup,
 	}, nil
+}
+
+func newResource(config Config) (*resource.Resource, error) {
+	attributes := append([]attribute.KeyValue(nil), config.ResourceAttributes...)
+	attributes = append(attributes, semconv.ServiceName(config.ServiceName))
+	return resource.Merge(
+		resource.Default(),
+		resource.NewWithAttributes(semconv.SchemaURL, attributes...),
+	)
 }
 
 // Logger returns a slog logger whose OTLP records use scope as their native
@@ -239,7 +279,7 @@ func joinShutdown(first, second func(context.Context) error) func(context.Contex
 }
 
 func shutdownOnFailure(ctx context.Context, timeout time.Duration, shutdown func(context.Context) error) {
-	shutdownCtx, cancel := context.WithTimeout(ctx, timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 
 	if err := shutdown(shutdownCtx); err != nil {

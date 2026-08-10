@@ -136,6 +136,49 @@ go test ./...
 go test -race ./...
 ```
 
+The real-PDS integration tests are opt-in. Start the Compose stack first, then
+run:
+
+```bash
+go test -tags=integration -count=1 -v ./test/integration
+```
+
+The tests read only the current process environment and do not load `.env`.
+Export it before running the tests, for example with `direnv` or:
+
+```bash
+set -a
+source .env
+set +a
+```
+
+The tests use `PDS_TEST_URL`, then `ACCOUNT_PDS`, and finally
+`http://localhost:2583`. `PDS_ADMIN_PASSWORD` is required for reliable account
+cleanup. Exported OTLP endpoint variables send test logs, metrics, and traces
+to the stack's collector. To exercise the PDS behavior without an OpenTelemetry
+backend, disable the SDK explicitly:
+
+```bash
+OTEL_SDK_DISABLED=true go test -tags=integration -count=1 -v ./test/integration
+```
+
+Every test process generates one `run_id` from the source commit and UTC start
+time. Set `ATPROTO_TEST_RUN_ID` to coordinate the same value across shards or
+separate invocations. Telemetry also includes the full source revision as the
+`vcs.revision` resource attribute. In Grafana, filter telemetry by `run_id`,
+`vcs.revision`, and `service.name=it`. Select an individual test with the
+per-signal `test.name` or `test.name.fingerprint` attribute. Older per-test
+`it-<sanitized-test-name>` service selectors are obsolete; test identity is not
+part of the shared process resource.
+Navigate each test trace through the stable `test.setup.*`, `test.fixture.*`,
+`test.action.*`, and `test.observe.*` spans. Test-owned HTTP spans are children
+of those semantic operations, while production behavior remains under
+`bot.label_profile` and `bot.create_post`.
+
+Integration accounts are deleted through the PDS admin API after each test.
+If a process is interrupted before cleanup, remove all persistent test accounts
+and records by resetting the Compose volumes as described in step 10.
+
 ## 9. Use the local services
 
 - Grafana dashboard: <http://localhost:3000/d/atproto-dev-services> (`admin` / `admin`)
